@@ -12,16 +12,53 @@ import (
 type Directory struct {
 	Node
 	children map[string]NamedNode
+	ChildVids map[string]uint64
+	IsDir map[string]bool
+	childrenInMemory bool
 }
 
 func (dir *Directory) InitDirectory(name string, mode os.FileMode, parent *Directory) {
 	dir.InitNode(name, mode, parent)
 	dir.children = make(map[string]NamedNode)
+	//dir.ChildVids = make(map[string]int)
+	//dir.IsDir = make(map[string]bool)
+	dir.childrenInMemory = true
+}
+
+func (dir *Directory) loadChildren() {
+	util.P_out("Loading children")
+	for key := range dir.ChildVids {
+		util.P_out(key)
+		if dir.IsDir[key] {
+			child, err := filesystem.database.GetDirectory(dir.ChildVids[key]) // check these errors!
+			if err != nil {
+				util.P_err("Error loading directory from db: ", err)
+			} else {
+				child.parent = dir
+				dir.children[key] = child
+			}
+		} else {
+			child, err := filesystem.database.GetFile(dir.ChildVids[key])
+			if err != nil {
+				util.P_err("Error loading file from db: ", err)
+			} else {
+				child.parent = dir
+				dir.children[key] = child	
+			}
+		}
+	}
+	dir.childrenInMemory = true
 }
 
 // Checks for a file called name in dir and returns it if it exists
+// Loads children lazily if they aren't in memory
 func (dir *Directory) Lookup(name string, intr fs.Intr) (fs.Node, fuse.Error) {
-	util.P_out("Lookup on %q from %q\n", name, dir.name)
+	filesystem.Lock(dir)
+	defer filesystem.Unlock(dir)
+	util.P_out("Lookup on %q from %q\n", name, dir.Name)
+	if !dir.childrenInMemory {
+		dir.loadChildren()
+	}
 	if file, ok := dir.children[name]; ok {
 		return file, nil
 	}
@@ -29,15 +66,21 @@ func (dir *Directory) Lookup(name string, intr fs.Intr) (fs.Node, fuse.Error) {
 }
 
 // Returns a list of Nodes (Files or Directories) in dir
+// Loads children lazily if they aren't in memory
 func (dir *Directory) ReadDir(intr fs.Intr) ([]fuse.Dirent, fuse.Error) {
-	util.P_out("readdir %q\n", dir.name)
+	filesystem.Lock(dir)
+	defer filesystem.Unlock(dir)
+	util.P_out("readdir %q\n", dir.Name)
+	if !dir.childrenInMemory {
+		dir.loadChildren()
+	}
 	files := make([]fuse.Dirent, 0, 10)
-	files = append(files, fuse.Dirent{Inode: dir.attr.Inode, Name: ".", Type: fuse.DT_Dir})
+	files = append(files, fuse.Dirent{Inode: dir.Attr().Inode, Name: ".", Type: fuse.DT_Dir})
 	parent := dir.parent
 	if parent == nil {
 		parent = dir
 	}
-	files = append(files, fuse.Dirent{Inode: parent.attr.Inode, Name: "..", Type: fuse.DT_Dir})
+	files = append(files, fuse.Dirent{Inode: parent.Attr().Inode, Name: "..", Type: fuse.DT_Dir})
 	for name, file := range dir.children {
 		files = append(files, fuse.Dirent{Inode: file.Attr().Inode, Name: name, Type: fuseType(file)})
 	}
@@ -46,31 +89,42 @@ func (dir *Directory) ReadDir(intr fs.Intr) ([]fuse.Dirent, fuse.Error) {
 
 // Makes a directory called req.Name in dir
 func (dir *Directory) Mkdir(req *fuse.MkdirRequest, intr fs.Intr) (fs.Node, fuse.Error) {
+	filesystem.Lock(dir)
+	defer filesystem.Unlock(dir)
 	util.P_out(req.String())
 	subdir := new(Directory)
 	subdir.InitDirectory(req.Name, os.ModeDir|req.Mode, dir)
 	dir.children[req.Name] = subdir
+	subdir.dirty = true
+	dir.dirty = true
 	return subdir, nil
 }
 
 // Creates a regular file in dir with the attributes supplied in req
 func (dir *Directory) Create(req *fuse.CreateRequest, resp *fuse.CreateResponse, intr fs.Intr) (fs.Node, fs.Handle, fuse.Error) {
+	filesystem.Lock(dir)
+	defer filesystem.Unlock(dir)
 	util.P_out(req.String())
 	rval := new(File)
 	rval.InitFile(req.Name, req.Mode, dir)
 	dir.children[req.Name] = rval
-	rval.attr.Gid = req.Gid
-	rval.attr.Uid = req.Uid
+	rval.Attrs.Gid = req.Gid
+	rval.Attrs.Uid = req.Uid
 	resp.Attr = rval.Attr()
-	resp.Node = rval.nid
+	resp.Node = fuse.NodeID(rval.Attr().Inode)
+	rval.dirty = true
+	dir.dirty = true
 	return rval, rval, nil
 }
 
 // Removes a file named req.Name from dir if it exists
 func (dir *Directory) Remove(req *fuse.RemoveRequest, intr fs.Intr) fuse.Error {
+	filesystem.Lock(dir)
+	defer filesystem.Unlock(dir)
 	util.P_out(req.String())
 	if _, ok := dir.children[req.Name]; ok {
 		delete(dir.children, req.Name)
+		dir.dirty = true
 		return nil
 	}
 	return fuse.ENOENT
@@ -79,15 +133,44 @@ func (dir *Directory) Remove(req *fuse.RemoveRequest, intr fs.Intr) fuse.Error {
 // Moves a file from dir to newDir (potentially the same as dir) and changes its name from req.OldName
 // to req.NewName
 func (dir *Directory) Rename(req *fuse.RenameRequest, newDir fs.Node, intr fs.Intr) fuse.Error {
+	filesystem.Lock(dir)
+	defer filesystem.Unlock(dir)
 	util.P_out(req.String())
 	if d, newDirOk := newDir.(*Directory); newDirOk {
 		if v, oldNameInDir := dir.children[req.OldName]; oldNameInDir {
-			delete(dir.children, req.OldName)
 			d.children[req.NewName] = v
 			v.setName(req.NewName)
+			if file, ok := v.(*File); ok {
+				file.dirty = true
+				file.parent = d
+			}
+			delete(dir.children, req.OldName)
 			return nil
 		}
+		d.dirty = true
 		return fuse.ENOENT
 	}
+	dir.dirty = true
 	return fuse.Errno(syscall.ENOTDIR)
+}
+
+// Note: rather than constantly maintaining two separate data structures that encode
+// the same information, I opt to update ChildVids all at once before a directory gets
+// committed to the database. This is probably not ideal in terms of performance,
+// but it's a lot easier to get right.
+func (dir *Directory) updateChildVids() {
+	dir.ChildVids = make(map[string]uint64)
+	dir.IsDir = make(map[string]bool)
+	for key := range dir.children {
+		child := dir.children[key]
+		if subdir, ok := child.(*Directory); ok {
+			dir.ChildVids[key] = subdir.Vid	
+			dir.IsDir[key] = true
+		} else if file, ok := child.(*File); ok {
+			dir.ChildVids[key] = file.Vid
+			dir.IsDir[key] = false
+		} else {
+			util.P_err("NamedNode not *File or *Directory")
+		}
+	}	
 }

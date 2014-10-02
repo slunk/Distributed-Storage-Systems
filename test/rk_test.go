@@ -9,9 +9,7 @@ import (
 func TestSingleChunk(t *testing.T) {
 	chunker := util.DefaultChunker()
 	chunks := chunker.Chunks(make([]byte, 10))
-	if len(chunks) != 1 {
-		t.Fail()
-	}
+	assert(t, len(chunks) == 1)
 }
 
 func TestChunks(t *testing.T) {
@@ -19,18 +17,10 @@ func TestChunks(t *testing.T) {
 	if buffer, err := ioutil.ReadFile("input/testfile"); err == nil {
 		chunker := util.DefaultChunker()
 		chunks := chunker.Chunks(buffer)
-		if len(chunks) != 12 {
-			t.Logf("Expected 12 chunks.")
-			t.FailNow()
-		}
+		assertWithMsg(t, len(chunks) == 12, "Expected 12 chunks.")
 		for i, expected := range expectedChunkSizes {
-			if len(chunks[i]) != expected {
-				t.Logf("Expected chunk %d to be %d bytes long.", i, expected)
-				t.FailNow()
-			}
-		}
-		if len(chunks[0]) != 7141 {
-			t.Fail()
+			assertWithMsg(t, len(chunks[i]) == expected, 
+				"Expected chunk " + string(i) + " to be " + string(expected) + " bytes long.")
 		}
 	} else {
 		t.Logf("Couldn't read input file.")

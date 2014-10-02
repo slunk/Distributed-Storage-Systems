@@ -65,7 +65,7 @@ func (chunker *RkChunker) Chunks(buffer []byte) [][]byte {
         curr_chunk, tmp = chunker.chunk(tmp)
         if i >= cap(chunks) {
             tmp := chunks
-            chunks = make([][]byte, i, 2 * cap(chunks))
+            chunks = make([][]byte, i + 1, 2 * cap(chunks))
             copy(chunks, tmp)
         } else {
             chunks = chunks[:i+1]
@@ -74,16 +74,3 @@ func (chunker *RkChunker) Chunks(buffer []byte) [][]byte {
     }
     return chunks
 }
-
-//func main() {
-//    chunker := DefaultChunker()
-//    if buffer, err := ioutil.ReadFile("testfile"); err == nil {
-//        chunks := chunker.Chunks(buffer)
-//        offset := 0
-//        for idx, element := range chunks {
-//            fmt.Println("Chunk: ", idx, " Offset: ", offset, " Length: ", len(element))
-//            offset += len(element)
-//        }
-        //fmt.Println(chunks)
-//    }
-//}

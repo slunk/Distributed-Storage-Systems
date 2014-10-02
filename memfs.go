@@ -19,19 +19,9 @@ import (
 	"dss/util"
 )
 
-
-var root *myfs.Directory
-
-type FS struct{}
-
-func (fs FS) Root() (fs.Node, fuse.Error) {
-	util.P_out("root returns as %d\n", int(root.Attr().Inode))
-	return root, nil
-}
-
 var Usage = func() {
 	fmt.Fprintf(os.Stderr, "Usage of %s:\n", os.Args[0])
-	fmt.Fprintf(os.Stderr, "  %s MOUNTPOINT\n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "  %s MOUNTPOINT DATABSE\n", os.Args[0])
 	flag.PrintDefaults()
 }
 
@@ -41,20 +31,23 @@ func main() {
 	debugPtr := flag.Bool("debug", false, "print lots of stuff")
 	flag.Parse()
 	util.SetDebug(*debugPtr)
-	//debug = *debugPtr
 
 	util.P_out("main\n")
 
-	root = new(myfs.Directory)
-	root.InitDirectory("", os.ModeDir|0755, nil)
-
-	//nodeMap[uint64(root.attr.Inode)] = root
-	util.P_out("root inode %d", int(root.Attr().Inode))
-
-	if flag.NArg() != 1 {
+	if flag.NArg() != 2 {
 		Usage()
 		os.Exit(2)
 	}
+
+	db, err := myfs.NewLeveldbFsDatabase(flag.Arg(1))
+	//db := &myfs.DummyFsDb{}
+	//err := error(nil)
+	if err != nil {
+		util.P_err("Problem loading the database: ", err)
+		os.Exit(-1)
+	}
+	filesystem := myfs.NewFs(db)
+	go filesystem.PeriodicFlush()
 
 	mountpoint := flag.Arg(0)
 
@@ -65,7 +58,7 @@ func main() {
 	}
 	defer c.Close()
 
-	err = fs.Serve(c, FS{})
+	err = fs.Serve(c, filesystem)
 	if err != nil {
 		log.Fatal(err)
 	}
