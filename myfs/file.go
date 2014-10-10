@@ -17,7 +17,7 @@ type File struct {
 	Node
 	data       []byte
 	DataBlocks [][]byte
-	loaded bool
+	loaded     bool
 }
 
 func (file *File) InitFile(name string, mode os.FileMode, parent *Directory) {
@@ -30,7 +30,8 @@ func (file *File) Fsync(req *fuse.FsyncRequest, intr fs.Intr) fuse.Error {
 	filesystem.Lock(file)
 	defer filesystem.Unlock(file)
 	util.P_out(req.String())
-	FlushNode(file)
+	// TODO: this might be really slow... Not sure I should be doing all this work here
+	FlushNode(filesystem.root)
 	return nil
 }
 
@@ -39,7 +40,8 @@ func (file *File) Flush(req *fuse.FlushRequest, intr fs.Intr) fuse.Error {
 	filesystem.Lock(file)
 	defer filesystem.Unlock(file)
 	util.P_out(req.String())
-	FlushNode(file)
+	// TODO: this might be really slow... Not sure I should be doing all this work here
+	FlushNode(filesystem.root)
 	return nil
 }
 
@@ -75,7 +77,6 @@ func (file *File) Write(req *fuse.WriteRequest, resp *fuse.WriteResponse, intr f
 		file.data = file.data[:size]
 	}
 	copy(file.data[req.Offset:], req.Data)
-	file.commitChunks()
 	resp.Size = writeSize
 	file.Attrs.Size = uint64(size)
 	file.Attrs.Mtime = time.Now()

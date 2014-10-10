@@ -3,8 +3,10 @@ package myfs
 import (
 	"encoding/json"
 	"os"
+	"os/signal"
 	"strconv"
 	"sync"
+	"syscall"
 	"time"
 
 	"bazil.org/fuse"
@@ -15,8 +17,30 @@ import (
 )
 
 const FLUSHER_PERIOD = 5 * time.Second
+const WRITE_QUEUE_SIZE = 100
 
 var filesystem FS
+
+func init() {
+	go signalHandler()
+}
+
+func signalHandler() {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	signal.Notify(c, syscall.SIGTERM)
+	<-c
+	if filesystem.database != nil {
+		FlushNode(filesystem.root)
+		filesystem.database.Close()
+	}
+	os.Exit(1)
+}
+
+type Block struct {
+	sha1 []byte
+	data []byte
+}
 
 type FS struct {
 	database  FsDatabase
@@ -117,6 +141,7 @@ func FlushNode(node NamedNode) {
 			util.P_out("Putting " + dir.Name)
 			dir.Vid = filesystem.getNextVid()
 			if dir.parent != nil {
+				dir.parent.setChild(dir)
 				if err := filesystem.database.PutDirectory(dir); err != nil {
 					util.P_err("Error putting directory in db: ", err)
 				}
@@ -134,10 +159,12 @@ func FlushNode(node NamedNode) {
 	if file, ok := node.(*File); ok && file.dirty {
 		util.P_out("Putting " + file.Name)
 		file.Vid = filesystem.getNextVid()
+		file.commitChunks()
 		if err := filesystem.database.PutFile(file); err != nil {
 			util.P_err("Error putting file in db: ", err)
 		}
 		if file.parent != nil {
+			file.parent.setChild(file)
 			file.parent.dirty = true
 		}
 	}

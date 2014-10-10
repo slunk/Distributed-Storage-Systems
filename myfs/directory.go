@@ -3,7 +3,7 @@ package myfs
 import (
 	"os"
 	"syscall"
-	
+
 	"bazil.org/fuse"
 	"bazil.org/fuse/fs"
 	"dss/util"
@@ -11,17 +11,17 @@ import (
 
 type Directory struct {
 	Node
-	children map[string]NamedNode
-	ChildVids map[string]uint64
-	IsDir map[string]bool
+	children         map[string]NamedNode
+	ChildVids        map[string]uint64
+	IsDir            map[string]bool
 	childrenInMemory bool
 }
 
 func (dir *Directory) InitDirectory(name string, mode os.FileMode, parent *Directory) {
 	dir.InitNode(name, mode, parent)
 	dir.children = make(map[string]NamedNode)
-	//dir.ChildVids = make(map[string]int)
-	//dir.IsDir = make(map[string]bool)
+	dir.ChildVids = make(map[string]uint64)
+	dir.IsDir = make(map[string]bool)
 	dir.childrenInMemory = true
 }
 
@@ -30,12 +30,12 @@ func (dir *Directory) loadChildren() {
 	for key := range dir.ChildVids {
 		util.P_out(key)
 		if dir.IsDir[key] {
-			child, err := filesystem.database.GetDirectory(dir.ChildVids[key]) // check these errors!
+			child, err := filesystem.database.GetDirectory(dir.ChildVids[key])
 			if err != nil {
 				util.P_err("Error loading directory from db: ", err)
 			} else {
 				child.parent = dir
-				dir.children[key] = child
+				dir.setChild(child)
 			}
 		} else {
 			child, err := filesystem.database.GetFile(dir.ChildVids[key])
@@ -43,7 +43,7 @@ func (dir *Directory) loadChildren() {
 				util.P_err("Error loading file from db: ", err)
 			} else {
 				child.parent = dir
-				dir.children[key] = child	
+				dir.setChild(child)
 			}
 		}
 	}
@@ -94,7 +94,7 @@ func (dir *Directory) Mkdir(req *fuse.MkdirRequest, intr fs.Intr) (fs.Node, fuse
 	util.P_out(req.String())
 	subdir := new(Directory)
 	subdir.InitDirectory(req.Name, os.ModeDir|req.Mode, dir)
-	dir.children[req.Name] = subdir
+	dir.setChild(subdir)
 	subdir.dirty = true
 	dir.dirty = true
 	return subdir, nil
@@ -107,9 +107,9 @@ func (dir *Directory) Create(req *fuse.CreateRequest, resp *fuse.CreateResponse,
 	util.P_out(req.String())
 	rval := new(File)
 	rval.InitFile(req.Name, req.Mode, dir)
-	dir.children[req.Name] = rval
 	rval.Attrs.Gid = req.Gid
 	rval.Attrs.Uid = req.Uid
+	dir.setChild(rval)
 	resp.Attr = rval.Attr()
 	resp.Node = fuse.NodeID(rval.Attr().Inode)
 	rval.dirty = true
@@ -123,7 +123,7 @@ func (dir *Directory) Remove(req *fuse.RemoveRequest, intr fs.Intr) fuse.Error {
 	defer filesystem.Unlock(dir)
 	util.P_out(req.String())
 	if _, ok := dir.children[req.Name]; ok {
-		delete(dir.children, req.Name)
+		dir.removeChild(req.Name)
 		dir.dirty = true
 		return nil
 	}
@@ -138,39 +138,31 @@ func (dir *Directory) Rename(req *fuse.RenameRequest, newDir fs.Node, intr fs.In
 	util.P_out(req.String())
 	if d, newDirOk := newDir.(*Directory); newDirOk {
 		if v, oldNameInDir := dir.children[req.OldName]; oldNameInDir {
-			d.children[req.NewName] = v
 			v.setName(req.NewName)
+			d.setChild(v)
 			if file, ok := v.(*File); ok {
 				file.dirty = true
 				file.parent = d
 			}
-			delete(dir.children, req.OldName)
+			dir.removeChild(req.OldName)
+			d.dirty = true
+			dir.dirty = true
 			return nil
 		}
-		d.dirty = true
 		return fuse.ENOENT
 	}
-	dir.dirty = true
 	return fuse.Errno(syscall.ENOTDIR)
 }
 
-// Note: rather than constantly maintaining two separate data structures that encode
-// the same information, I opt to update ChildVids all at once before a directory gets
-// committed to the database. This is probably not ideal in terms of performance,
-// but it's a lot easier to get right.
-func (dir *Directory) updateChildVids() {
-	dir.ChildVids = make(map[string]uint64)
-	dir.IsDir = make(map[string]bool)
-	for key := range dir.children {
-		child := dir.children[key]
-		if subdir, ok := child.(*Directory); ok {
-			dir.ChildVids[key] = subdir.Vid	
-			dir.IsDir[key] = true
-		} else if file, ok := child.(*File); ok {
-			dir.ChildVids[key] = file.Vid
-			dir.IsDir[key] = false
-		} else {
-			util.P_err("NamedNode not *File or *Directory")
-		}
-	}	
+func (dir *Directory) setChild(node NamedNode) {
+	name := node.getName()
+	dir.children[name] = node
+	dir.ChildVids[name] = node.getVid()
+	dir.IsDir[name] = node.isDir()
+}
+
+func (dir *Directory) removeChild(name string) {
+	delete(dir.children, name)
+	delete(dir.ChildVids, name)
+	delete(dir.IsDir, name)
 }

@@ -3,7 +3,7 @@ package myfs
 import (
 	"os"
 	"time"
-	
+
 	"bazil.org/fuse"
 	"bazil.org/fuse/fs"
 	"dss/util"
@@ -15,15 +15,18 @@ var gid = os.Getegid()
 
 type NamedNode interface {
 	fs.Node
+	getName() string
 	setName(name string)
-	setDirty(dirty bool)
+	getVid() uint64
+	isDir() bool
+	//setDirty(dirty bool)
 }
 
 // Generic information for files and directories
 type Node struct {
-	Vid uint64
+	Vid    uint64
 	Name   string
-	Attrs   fuse.Attr
+	Attrs  fuse.Attr
 	dirty  bool
 	parent *Directory
 }
@@ -70,8 +73,20 @@ func (node *Node) Attr() fuse.Attr {
 	return attrs
 }
 
+func (node Node) getName() string {
+	return node.Name
+}
+
 func (node *Node) setName(name string) {
 	node.Name = name
+}
+
+func (node Node) getVid() uint64 {
+	return node.Vid
+}
+
+func (node Node) isDir() bool {
+	return isDir(&node)
 }
 
 // Get file attributes for this node
@@ -112,6 +127,6 @@ func (node *Node) Setattr(req *fuse.SetattrRequest, resp *fuse.SetattrResponse, 
 	return nil
 }
 
-func (node *Node) setDirty(dirty bool) {
+func (node *Node) SetDirty(dirty bool) {
 	node.dirty = dirty
 }
