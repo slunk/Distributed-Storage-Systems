@@ -18,17 +18,23 @@ type NamedNode interface {
 	getName() string
 	setName(name string)
 	getVid() uint64
+	getLastVid() uint64
+	setVid(uint64)
 	isDir() bool
+	isArchive() bool
 	//setDirty(dirty bool)
 }
 
 // Generic information for files and directories
 type Node struct {
-	Vid    uint64
-	Name   string
-	Attrs  fuse.Attr
-	dirty  bool
-	parent *Directory
+	Vid     uint64
+	LastVid uint64
+	Vtime   time.Time
+	Name    string
+	Attrs   fuse.Attr
+	dirty   bool
+	parent  *Directory
+	archive bool
 }
 
 func isDir(node fs.Node) bool {
@@ -43,7 +49,8 @@ func fuseType(node fs.Node) fuse.DirentType {
 }
 
 func (node *Node) InitNode(name string, mode os.FileMode, parent *Directory) {
-	node.Vid = filesystem.getNextVid()
+	node.Vid = NULL_VERSION
+	node.LastVid = NULL_VERSION
 	util.P_out("VID: ", node.Vid)
 	node.Attrs.Inode = filesystem.getNextInd()
 	node.Attrs.Nlink = 1
@@ -64,7 +71,13 @@ func (node *Node) InitNode(name string, mode os.FileMode, parent *Directory) {
 	node.dirty = true
 	node.parent = parent
 
+	node.archive = false
+
 	util.P_out("inited node inode %d, %q\n", filesystem.NextInd, name)
+}
+
+func (node Node) isArchive() bool {
+	return node.archive
 }
 
 func (node *Node) Attr() fuse.Attr {
@@ -85,6 +98,14 @@ func (node Node) getVid() uint64 {
 	return node.Vid
 }
 
+func (node Node) getLastVid() uint64 {
+	return node.LastVid
+}
+
+func (node *Node) setVid(vid uint64) {
+	node.Vid = vid
+}
+
 func (node Node) isDir() bool {
 	return isDir(&node)
 }
@@ -92,6 +113,9 @@ func (node Node) isDir() bool {
 // Get file attributes for this node
 func (node *Node) Getattr(req *fuse.GetattrRequest, resp *fuse.GetattrResponse, intr fs.Intr) fuse.Error {
 	resp.Attr = node.Attr()
+	if node.isArchive() {
+		resp.Attr.Mode = (os.ModeDir & node.Attr().Mode) | 0444
+	}
 	return nil
 }
 

@@ -2,6 +2,23 @@
 
 Peter Enns' implementations of the class projects for CMSC818e.
 
+## Project 3
+
+### Building / Running
+
+Same as project 2 except there is no need to wait before killing the program.
+
+If the behavior is slightly different from what was expected, try the
+-mtimeArchives command line option. By default, archives are created with a
+timestamp when the versions were committed to the database instead of
+"modified time" (this allows for directories to have multiple versions when a
+file inside them is written to, which is not true of Mtime).
+
+### Relevant portions
+
+1. Directory archive code is mostly in myfs/directory.go, and some small
+modifications in myfs/node.go and myfs/fs.go.
+
 ## Project 2
 
 ### Building / Running

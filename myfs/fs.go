@@ -2,6 +2,7 @@ package myfs
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"os/signal"
 	"strconv"
@@ -20,6 +21,7 @@ const FLUSHER_PERIOD = 5 * time.Second
 const WRITE_QUEUE_SIZE = 100
 
 var filesystem FS
+var UseMtime bool = false
 
 func init() {
 	go signalHandler()
@@ -30,10 +32,12 @@ func signalHandler() {
 	signal.Notify(c, os.Interrupt)
 	signal.Notify(c, syscall.SIGTERM)
 	<-c
+	filesystem.Lock(nil)
 	if filesystem.database != nil {
 		FlushNode(filesystem.root)
 		filesystem.database.Close()
 	}
+	filesystem.Unlock(nil)
 	os.Exit(1)
 }
 
@@ -51,6 +55,8 @@ type FS struct {
 	ChunkInDb map[string]bool
 }
 
+const NULL_VERSION uint64 = 0
+
 // Initializes and returns a filesystem with the database provided
 // Note: This MUST be called before some node methods are called
 // Because unfortunately for the time being, it has to set up some
@@ -59,7 +65,7 @@ func NewFs(db FsDatabase) FS {
 	newFs := FS{
 		database:  db,
 		NextInd:   0,
-		NextVid:   0,
+		NextVid:   1,
 		ChunkInDb: make(map[string]bool),
 	}
 	if data, err := db.GetBlock([]byte("metadata")); err == nil {
@@ -122,6 +128,20 @@ func (fsys *FS) PeriodicFlush() {
 	}
 }
 
+func (fs *FS) getFile(vid uint64) (*File, error) {
+	if vid == NULL_VERSION {
+		return nil, errors.New("No such version")
+	}
+	return fs.database.GetFile(vid)
+}
+
+func (fs *FS) getDirectory(vid uint64) (*Directory, error) {
+	if vid == NULL_VERSION {
+		return nil, errors.New("No such version")
+	}
+	return fs.database.GetDirectory(vid)
+}
+
 func (fsys *FS) DbContains(sha1 []byte) bool {
 	return fsys.ChunkInDb[string(sha1[:])]
 }
@@ -132,14 +152,22 @@ func (fsys *FS) PutChunk(sha1 []byte, data []byte) error {
 }
 
 func FlushNode(node NamedNode) {
+	flushNode(time.Now(), node)
+}
+
+func flushNode(flushTime time.Time, node NamedNode) {
 	if dir, ok := node.(*Directory); ok {
 		util.P_out("Visiting node: "+dir.Name+" at version %d", dir.Vid)
 		for _, node := range dir.children {
-			FlushNode(node)
+			if !node.isArchive() {
+				flushNode(flushTime, node)
+			}
 		}
 		if dir.dirty {
 			util.P_out("Putting " + dir.Name)
+			dir.LastVid = dir.Vid
 			dir.Vid = filesystem.getNextVid()
+			dir.Vtime = flushTime
 			if dir.parent != nil {
 				dir.parent.setChild(dir)
 				if err := filesystem.database.PutDirectory(dir); err != nil {
@@ -158,7 +186,9 @@ func FlushNode(node NamedNode) {
 	}
 	if file, ok := node.(*File); ok && file.dirty {
 		util.P_out("Putting " + file.Name)
+		file.LastVid = file.Vid
 		file.Vid = filesystem.getNextVid()
+		file.Vtime = flushTime
 		file.commitChunks()
 		if err := filesystem.database.PutFile(file); err != nil {
 			util.P_err("Error putting file in db: ", err)

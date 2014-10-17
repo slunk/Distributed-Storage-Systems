@@ -29,8 +29,10 @@ func main() {
 	flag.Usage = Usage
 
 	debugPtr := flag.Bool("debug", false, "print lots of stuff")
+	mtimePtr := flag.Bool("mtimeArchives", false, "use modify timestamp instead of version timestamp for archives")
 	flag.Parse()
 	util.SetDebug(*debugPtr)
+	myfs.UseMtime = *mtimePtr
 
 	util.P_out("main\n")
 
