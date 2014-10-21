@@ -148,6 +148,7 @@ func (node *Node) Setattr(req *fuse.SetattrRequest, resp *fuse.SetattrResponse, 
 		node.Attrs.Flags = req.Flags
 	}
 	resp.Attr = node.Attrs
+	node.dirty = true
 	return nil
 }
 
