@@ -159,7 +159,7 @@ func (dir *Directory) mkDirectoryArchive(name string, archiveTime time.Time, sta
 func (dir *Directory) mkArchive(name string) (*Directory, error) {
 	tmp := strings.Split(name, "@")
 	if len(tmp) != 2 || dir.children[tmp[0]] == nil {
-		return nil, fuse.EPERM
+		return nil, fuse.ENOENT
 	}
 	if tmp[1] == "archive" { // File archives
 		node := dir.children[tmp[0]]
