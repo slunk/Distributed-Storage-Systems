@@ -15,12 +15,14 @@ const MIN_FILE_CAPACITY = 1
 
 type File struct {
 	Node
+	Source     string
 	data       []byte
 	DataBlocks [][]byte
 	loaded     bool
 }
 
 func (file *File) InitFile(name string, mode os.FileMode, parent *Directory) {
+	file.Source = filesystem.replInfo.Pid
 	file.InitNode(name, mode, parent)
 	file.data = make([]byte, 0, MIN_FILE_CAPACITY)
 	file.loaded = true
@@ -29,7 +31,7 @@ func (file *File) InitFile(name string, mode os.FileMode, parent *Directory) {
 func (file *File) Fsync(req *fuse.FsyncRequest, intr fs.Intr) fuse.Error {
 	filesystem.Lock(file)
 	defer filesystem.Unlock(file)
-	util.P_out(req.String())
+	//util.P_out(req.String())
 	// TODO: this might be really slow... Not sure I should be doing all this work here
 	FlushNode(filesystem.root)
 	return nil
@@ -39,7 +41,7 @@ func (file *File) Fsync(req *fuse.FsyncRequest, intr fs.Intr) fuse.Error {
 func (file *File) Flush(req *fuse.FlushRequest, intr fs.Intr) fuse.Error {
 	filesystem.Lock(file)
 	defer filesystem.Unlock(file)
-	util.P_out(req.String())
+	//util.P_out(req.String())
 	// TODO: this might be really slow... Not sure I should be doing all this work here
 	FlushNode(filesystem.root)
 	return nil
@@ -52,7 +54,6 @@ func (file *File) ReadAll(intr fs.Intr) ([]byte, fuse.Error) {
 	util.P_out("read all: %s", file.Name)
 	if !file.loaded {
 		file.loadChunks()
-		file.loaded = true
 	}
 	file.Attrs.Atime = time.Now()
 	return file.data, nil
@@ -88,7 +89,7 @@ func (file *File) loadChunks() {
 	tmp := make([][]byte, len(file.DataBlocks))
 	size := 0
 	for i, chunkSha := range file.DataBlocks {
-		if data, err := filesystem.database.GetBlock(chunkSha); err != nil {
+		if data, err := filesystem.GetChunk(chunkSha, file.Source); err != nil {
 			util.P_err("Unable to load block", err)
 			tmp[i] = []byte{} // TODO: probably shouldn't fail this silently
 		} else {
@@ -102,6 +103,7 @@ func (file *File) loadChunks() {
 		copy(file.data[offset:], chunk)
 		offset += len(chunk)
 	}
+	file.loaded = true
 }
 
 func (file *File) commitChunks() {
@@ -122,4 +124,12 @@ func (file *File) commitChunks() {
 			}
 		}
 	}
+}
+
+func (file *File) DataIsLoaded() bool {
+	return file.loaded
+}
+
+func (file *File) CommitChunks() {
+	file.commitChunks()
 }

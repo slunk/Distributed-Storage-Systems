@@ -1,6 +1,8 @@
 package myfs
 
 import (
+	"crypto/sha1"
+	"encoding/json"
 	"os"
 	"time"
 
@@ -17,9 +19,9 @@ type NamedNode interface {
 	fs.Node
 	getName() string
 	setName(name string)
-	getVid() uint64
-	getLastVid() uint64
-	setVid(uint64)
+	getVid() []byte
+	getLastVid() []byte
+	setVid([]byte)
 	isDir() bool
 	isArchive() bool
 	//setDirty(dirty bool)
@@ -27,9 +29,10 @@ type NamedNode interface {
 
 // Generic information for files and directories
 type Node struct {
-	Vid     uint64
-	LastVid uint64
+	Vid     []byte
+	LastVid []byte
 	Vtime   time.Time
+	Source  string
 	Name    string
 	Attrs   fuse.Attr
 	dirty   bool
@@ -49,6 +52,7 @@ func fuseType(node fs.Node) fuse.DirentType {
 }
 
 func (node *Node) InitNode(name string, mode os.FileMode, parent *Directory) {
+	node.Source = filesystem.replInfo.Pid
 	node.Vid = NULL_VERSION
 	node.LastVid = NULL_VERSION
 	util.P_out("VID: ", node.Vid)
@@ -94,15 +98,15 @@ func (node *Node) setName(name string) {
 	node.Name = name
 }
 
-func (node Node) getVid() uint64 {
+func (node Node) getVid() []byte {
 	return node.Vid
 }
 
-func (node Node) getLastVid() uint64 {
+func (node Node) getLastVid() []byte {
 	return node.LastVid
 }
 
-func (node *Node) setVid(vid uint64) {
+func (node *Node) setVid(vid []byte) {
 	node.Vid = vid
 }
 
@@ -154,4 +158,13 @@ func (node *Node) Setattr(req *fuse.SetattrRequest, resp *fuse.SetattrResponse, 
 
 func (node *Node) SetDirty(dirty bool) {
 	node.dirty = dirty
+}
+
+func (node Node) ComputeVid() []byte {
+	if marshalled, err := json.Marshal(node); err == nil {
+		hasher := sha1.New()
+		hasher.Write(marshalled)
+		return hasher.Sum(nil)
+	}
+	return make([]byte, 0)
 }

@@ -10,7 +10,9 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"os"
+	"strings"
 
 	"bazil.org/fuse"
 	"bazil.org/fuse/fs"
@@ -25,33 +27,68 @@ var Usage = func() {
 	flag.PrintDefaults()
 }
 
+func IsOurIpAddr(someAddr string) bool {
+	addrs, _ := net.InterfaceAddrs()
+	isOurs := false
+	for _, addr := range addrs {
+		isOurs = isOurs || strings.HasPrefix(addr.String(), someAddr)
+	}
+	return isOurs
+}
+
 func main() {
 	flag.Usage = Usage
 
 	debugPtr := flag.Bool("debug", false, "print lots of stuff")
+	newfsPtr := flag.Bool("newfs", false, "start with an empty file system")
 	mtimePtr := flag.Bool("mtimeArchives", false, "use modify timestamp instead of version timestamp for archives")
+	name := flag.String("name", "auto", "replica name")
+	configFile := flag.String("config", "config.txt", "path to config file")
 	flag.Parse()
 	util.SetDebug(*debugPtr)
 	myfs.UseMtime = *mtimePtr
 
 	util.P_out("main\n")
 
-	if flag.NArg() != 2 {
+	/*if flag.NArg() != 2 {
 		Usage()
 		os.Exit(2)
+	}*/
+
+	replicas := myfs.ReadReplicaInfo(*configFile)
+	var thisReplica *myfs.ReplicaInfo = nil
+
+	for _, replica := range replicas {
+		if *name == "auto" && IsOurIpAddr(replica.IpAddr) {
+			thisReplica = replica
+			break
+		} else if *name == replica.Name {
+			thisReplica = replica
+			break
+		}
 	}
 
-	db, err := myfs.NewLeveldbFsDatabase(flag.Arg(1))
+	if thisReplica == nil {
+		util.P_err("No applicable replica")
+		os.Exit(1)
+	}
+
+	if *newfsPtr {
+		os.RemoveAll(thisReplica.DbPath)
+	}
+
+	db, err := myfs.NewLeveldbFsDatabase(thisReplica.DbPath)
 	//db := &myfs.DummyFsDb{}
 	//err := error(nil)
 	if err != nil {
 		util.P_err("Problem loading the database: ", err)
 		os.Exit(-1)
 	}
-	filesystem := myfs.NewFs(db)
+	filesystem := myfs.NewFs(db, thisReplica, replicas)
 	go filesystem.PeriodicFlush()
 
-	mountpoint := flag.Arg(0)
+	//mountpoint := flag.Arg(0)
+	mountpoint := thisReplica.MntPoint
 
 	fuse.Unmount(mountpoint) //!!
 	c, err := fuse.Mount(mountpoint)

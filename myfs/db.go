@@ -3,7 +3,7 @@ package myfs
 import (
 	"encoding/json"
 	"errors"
-	"strconv"
+	//	"strconv"
 
 	"github.com/syndtr/goleveldb/leveldb"
 
@@ -18,8 +18,8 @@ type FsDatabase interface {
 	Close() error
 	GetRoot() (*Directory, error)
 	SetRoot(dir *Directory) error
-	GetFile(vid uint64) (*File, error)
-	GetDirectory(vid uint64) (*Directory, error)
+	GetFile(vid []byte) (*File, error)
+	GetDirectory(vid []byte) (*Directory, error)
 	GetBlock(sha1 []byte) ([]byte, error)
 	PutFile(file *File) error
 	PutDirectory(dir *Directory) error
@@ -42,11 +42,11 @@ func (fsdb *DummyFsDb) SetRoot(dir *Directory) error {
 	return errDummy
 }
 
-func (fsdb *DummyFsDb) GetFile(vid uint64) (*File, error) {
+func (fsdb *DummyFsDb) GetFile(vid []byte) (*File, error) {
 	return nil, errDummy
 }
 
-func (fsdb *DummyFsDb) GetDirectory(vid uint64) (*Directory, error) {
+func (fsdb *DummyFsDb) GetDirectory(vid []byte) (*Directory, error) {
 	return nil, errDummy
 }
 
@@ -96,8 +96,8 @@ func (fsdb *LeveldbFsDatabase) GetRoot() (*Directory, error) {
 
 func (fsdb *LeveldbFsDatabase) SetRoot(dir *Directory) error {
 	head := []byte(HEAD)
-	vidStr := []byte(strconv.FormatUint(dir.Vid, 10))
-	if err := fsdb.database.Put(head, vidStr, nil); err != nil {
+	//vidStr := []byte(strconv.FormatUint(dir.Vid, 10))
+	if err := fsdb.database.Put(head, dir.Vid, nil); err != nil {
 		return err
 	}
 	fsdb.PutDirectory(dir)
@@ -119,14 +119,14 @@ func (fsdb *LeveldbFsDatabase) getDirectory(key []byte) (*Directory, error) {
 	return dir, nil
 }
 
-func (fsdb *LeveldbFsDatabase) GetDirectory(vid uint64) (*Directory, error) {
-	key := []byte(strconv.FormatUint(vid, 10))
-	return fsdb.getDirectory(key)
+func (fsdb *LeveldbFsDatabase) GetDirectory(vid []byte) (*Directory, error) {
+	//key := []byte(strconv.FormatUint(vid, 10))
+	return fsdb.getDirectory(vid)
 }
 
-func (fsdb *LeveldbFsDatabase) GetFile(vid uint64) (*File, error) {
-	key := []byte(strconv.FormatUint(vid, 10))
-	if val, dbErr := fsdb.database.Get(key, nil); dbErr == nil {
+func (fsdb *LeveldbFsDatabase) GetFile(vid []byte) (*File, error) {
+	//key := []byte(strconv.FormatUint(vid, 10))
+	if val, dbErr := fsdb.database.Get(vid, nil); dbErr == nil {
 		file := new(File)
 		if jsonErr := json.Unmarshal(val, file); jsonErr == nil {
 			//file.data = make([]byte, 0, MIN_FILE_CAPACITY)
@@ -145,10 +145,10 @@ func (fsdb *LeveldbFsDatabase) GetBlock(sha1 []byte) ([]byte, error) {
 }
 
 func (fsdb *LeveldbFsDatabase) PutDirectory(dir *Directory) error {
-	key := []byte(strconv.FormatUint(dir.Vid, 10))
+	//key := []byte(strconv.FormatUint(dir.Vid, 10))
 	//dir.updateChildVids()
 	if val, jsonErr := json.Marshal(dir); jsonErr == nil {
-		if dbErr := fsdb.database.Put(key, val, nil); dbErr != nil {
+		if dbErr := fsdb.database.Put(dir.Vid, val, nil); dbErr != nil {
 			util.P_err("Error writing to the db: ", dbErr)
 			return dbErr
 		} else {
@@ -162,9 +162,9 @@ func (fsdb *LeveldbFsDatabase) PutDirectory(dir *Directory) error {
 }
 
 func (fsdb *LeveldbFsDatabase) PutFile(file *File) error {
-	key := []byte(strconv.FormatUint(file.Vid, 10))
+	//key := []byte(strconv.FormatUint(file.Vid, 10))
 	if val, jsonErr := json.Marshal(file); jsonErr == nil {
-		if dbErr := fsdb.database.Put(key, val, nil); dbErr != nil {
+		if dbErr := fsdb.database.Put(file.Vid, val, nil); dbErr != nil {
 			return dbErr
 		} else {
 			file.dirty = false

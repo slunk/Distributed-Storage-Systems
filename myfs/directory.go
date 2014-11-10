@@ -14,7 +14,7 @@ import (
 type Directory struct {
 	Node
 	children         map[string]NamedNode
-	ChildVids        map[string]uint64
+	ChildVids        map[string][]byte
 	IsDir            map[string]bool
 	childrenInMemory bool
 }
@@ -22,7 +22,7 @@ type Directory struct {
 func (dir *Directory) InitDirectory(name string, mode os.FileMode, parent *Directory) {
 	dir.InitNode(name, mode, parent)
 	dir.children = make(map[string]NamedNode)
-	dir.ChildVids = make(map[string]uint64)
+	dir.ChildVids = make(map[string][]byte)
 	dir.IsDir = make(map[string]bool)
 	dir.childrenInMemory = true
 }
@@ -33,7 +33,7 @@ func (dir *Directory) loadChildren() {
 	for key := range dir.ChildVids {
 		util.P_out(key)
 		if dir.IsDir[key] {
-			child, err := filesystem.database.GetDirectory(dir.ChildVids[key])
+			child, err := filesystem.GetDirectory(dir.ChildVids[key], dir.Source)
 			if err != nil {
 				util.P_err("Error loading directory from db: ", err)
 			} else {
@@ -42,7 +42,7 @@ func (dir *Directory) loadChildren() {
 				dir.setChild(child)
 			}
 		} else {
-			child, err := filesystem.database.GetFile(dir.ChildVids[key])
+			child, err := filesystem.GetFile(dir.ChildVids[key], dir.Source)
 			if err != nil {
 				util.P_err("Error loading file from db: ", err)
 			} else {

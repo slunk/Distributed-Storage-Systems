@@ -51,9 +51,10 @@ func TestSaveSingleFile(t *testing.T) {
 		file.InitFile("someFile", 755, nil)
 		writeReq := &fuse.WriteRequest{
 			Offset: 0,
-			Data: []byte("qwejkrhbwqkjhebrjhkqw"),
+			Data:   []byte("qwejkrhbwqkjhebrjhkqw"),
 		}
 		file.Write(writeReq, new(fuse.WriteResponse), *new(fs.Intr))
+		file.CommitChunks()
 		fsdb.PutFile(file)
 		fileFromDb, _ := fsdb.GetFile(file.Vid)
 		assertWithMsg(t, file.Vid == fileFromDb.Vid,
@@ -66,23 +67,27 @@ func TestSaveSingleFile(t *testing.T) {
 			assertWithMsg(t, string(expectedBlockHash) == string(fileFromDb.DataBlocks[i]),
 				"Expected all data block hashes to be indentical.")
 		}
+		assertWithMsg(t, !fileFromDb.DataIsLoaded(), "Data should not be loaded before read")
 		inData, _ := file.ReadAll(*new(fs.Intr))
 		outData, _ := fileFromDb.ReadAll(*new(fs.Intr))
+		assertWithMsg(t, fileFromDb.DataIsLoaded(), "Data should be loaded after read")
+		t.Log(inData)
+		t.Log(outData)
 		assertWithMsg(t, string(inData) == string(outData),
-			"Expected file data to be identical after load.") 
+			"Expected file data to be identical after load.")
 	})
 }
 
 func TestSaveRoot(t *testing.T) {
 	genericDbTest(t, func() {
 		dir := new(myfs.Directory)
-		dir.InitDirectory("", 0755, nil)	
+		dir.InitDirectory("", 0755, nil)
 		subdir := new(myfs.Directory)
 		subdir.InitDirectory("name", 0755, dir)
 		dir.Mkdir(&fuse.MkdirRequest{
-				Name: "name",
-				Mode: 0755,
-			}, nil)
+			Name: "name",
+			Mode: 0755,
+		}, nil)
 		fsdb.SetRoot(dir)
 		fromDb, _ := fsdb.GetRoot()
 		assertWithMsg(t, len(dir.ChildVids) == len(fromDb.ChildVids),
