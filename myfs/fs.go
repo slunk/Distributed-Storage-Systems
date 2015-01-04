@@ -94,6 +94,9 @@ func NewFs(db FsDatabase, us *ReplicaInfo, replicas map[string]*ReplicaInfo) FS 
 					break
 				}
 			}
+			if i >= len(payload) {
+				return
+			}
 			json.Unmarshal(payload[i+1:], &changes)
 			filesystem.Lock(nil)
 			defer filesystem.Unlock(nil)
@@ -316,11 +319,15 @@ func updateDir(oldDir *Directory, newDir *Directory, changes map[string][]byte) 
 			oldDir.ChildVids[name] = vid
 			oldDir.IsDir[name] = newDir.IsDir[name]
 			if newDir.IsDir[name] {
-				oldDir.children[name], _ = filesystem.GetDirectory(vid, newDir.Source)
+				child, _ := filesystem.GetDirectory(vid, newDir.Source)
+				child.parent = oldDir
+				oldDir.children[name] = child
 			} else {
-				oldDir.children[name], _ = filesystem.GetFile(vid, newDir.Source)
+				child, _ := filesystem.GetFile(vid, newDir.Source)
+				child.parent = oldDir
+				oldDir.children[name] = child
 			}
-		} else {
+		} else if changes[hex.EncodeToString(vid)] != nil {
 			updateNode(oldDir.children[name], hex.EncodeToString(vid), changes)
 		}
 	}

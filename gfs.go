@@ -10,9 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"net"
 	"os"
-	"strings"
 
 	"bazil.org/fuse"
 	"bazil.org/fuse/fs"
@@ -25,15 +23,6 @@ var Usage = func() {
 	fmt.Fprintf(os.Stderr, "Usage of %s:\n", os.Args[0])
 	fmt.Fprintf(os.Stderr, "  %s MOUNTPOINT DATABSE\n", os.Args[0])
 	flag.PrintDefaults()
-}
-
-func IsOurIpAddr(someAddr string) bool {
-	addrs, _ := net.InterfaceAddrs()
-	isOurs := false
-	for _, addr := range addrs {
-		isOurs = isOurs || strings.HasPrefix(addr.String(), someAddr)
-	}
-	return isOurs
 }
 
 func main() {
@@ -50,23 +39,9 @@ func main() {
 
 	util.P_out("main\n")
 
-	/*if flag.NArg() != 2 {
-		Usage()
-		os.Exit(2)
-	}*/
-
+	pid := myfs.GetOurPid(*configFile, *name)
 	replicas := myfs.ReadReplicaInfo(*configFile)
-	var thisReplica *myfs.ReplicaInfo = nil
-
-	for _, replica := range replicas {
-		if *name == "auto" && IsOurIpAddr(replica.IpAddr) {
-			thisReplica = replica
-			break
-		} else if *name == replica.Name {
-			thisReplica = replica
-			break
-		}
-	}
+	thisReplica := replicas[pid]
 
 	if thisReplica == nil {
 		util.P_err("No applicable replica")
@@ -75,6 +50,10 @@ func main() {
 
 	if *newfsPtr {
 		os.RemoveAll(thisReplica.DbPath)
+	}
+
+	if _, err := os.Stat(thisReplica.MntPoint); os.IsNotExist(err) {
+		os.MkdirAll(thisReplica.MntPoint, os.ModeDir)
 	}
 
 	db, err := myfs.NewLeveldbFsDatabase(thisReplica.DbPath)
